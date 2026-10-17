@@ -5,7 +5,7 @@
 <h1 align="center">sttkbrd</h1>
 
 Hold a key combination, speak, release - the text is typed where the cursor is, as if typed on a keyboard.
-Linux/X11. Lives as an icon by the clock (system tray). Uses OpenRouter for speech-to-text, like EgenAiAgent.
+Linux/X11. Lives as an icon by the clock (system tray). Uses OpenRouter for speech-to-text.
 
 ## Run
     ./sttkbrd.sh
