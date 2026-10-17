@@ -1,4 +1,8 @@
-# sttkbrd
+<p align="center">
+  <img src="art/icon-256.png" width="160" alt="sttkbrd icon">
+</p>
+
+<h1 align="center">sttkbrd</h1>
 
 Hold a key combination, speak, release - the text is typed where the cursor is, as if typed on a keyboard.
 Linux/X11. Lives as an icon by the clock (system tray). Uses OpenRouter for speech-to-text, like EgenAiAgent.
