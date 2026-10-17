@@ -1,4 +1,6 @@
 import os
+import shutil
+import subprocess
 
 from .log import log
 
@@ -38,19 +40,30 @@ def _read(path):
     return values
 
 
-def _content(exec_line):
+def menu_path():
+    base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(base, "applications", "sttkbrd.desktop")
+
+
+def _content(exec_line, autostart=True):
     lines = [
         "[Desktop Entry]",
         "Type=Application",
         "Name=sttkbrd",
         "Comment=Speech to keyboard",
         "Exec=" + exec_line,
+        "TryExec=" + LAUNCHER,  # desktops hide the entry if the program has been moved or deleted
         "Path=" + APP_DIR,
         "Icon=" + (ICON if os.path.isfile(ICON) else "audio-input-microphone"),
         "Terminal=false",
-        "X-GNOME-Autostart-enabled=true",
-        "X-GNOME-Autostart-Delay=3",  # give the panel time to create the tray before the icon is added
     ]
+    if autostart:
+        lines += [
+            "X-GNOME-Autostart-enabled=true",
+            "X-GNOME-Autostart-Delay=3",  # give the panel time to create the tray before the icon is added
+        ]
+    else:
+        lines += ["Categories=Utility;Accessibility;", "Keywords=speech;dictation;voice;microphone;", "StartupNotify=false"]
     return "\n".join(lines) + "\n"
 
 
@@ -98,3 +111,63 @@ def refresh_if_stale():
     if values.get("Exec") != expected or values.get("Path") != APP_DIR:
         log.info("Autostart entry pointed at %r - updating to %r", values.get("Exec"), expected)
         enable()
+
+
+# --- application menu entry (start the app without a terminal) -------------------------------------------------
+# A plain freedesktop.org desktop entry in $XDG_DATA_HOME/applications: read by GNOME, KDE, Xfce, MATE, Cinnamon,
+# LXQt and the others, so nothing here is specific to one desktop environment.
+def _update_desktop_database(directory):
+    """Best effort: some desktops cache the menu. Harmless if the tool is missing or fails."""
+    tool = shutil.which("update-desktop-database")
+    if tool:
+        try:
+            subprocess.run([tool, directory], capture_output=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
+def menu_entry_enabled():
+    values = _read(menu_path())
+    return values is not None and values.get("Hidden", "false").lower() != "true" \
+        and values.get("NoDisplay", "false").lower() != "true"
+
+
+def install_menu_entry():
+    """Write ~/.local/share/applications/sttkbrd.desktop for this copy of the app. Returns its path."""
+    exec_line = _exec_line()  # same checks as autostart: the launcher must exist at this exact path
+    path = menu_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(_content(exec_line, autostart=False))
+    except OSError as ex:
+        raise AutostartError("Could not write %s: %s" % (path, ex))
+    _update_desktop_database(os.path.dirname(path))
+    log.info("Menu entry installed: %s -> %s", path, exec_line)
+    return path
+
+
+def remove_menu_entry():
+    try:
+        os.remove(menu_path())
+        _update_desktop_database(os.path.dirname(menu_path()))
+        log.info("Menu entry removed")
+    except FileNotFoundError:
+        pass
+    except OSError as ex:
+        raise AutostartError("Could not remove %s: %s" % (menu_path(), ex))
+
+
+def refresh_menu_if_stale():
+    """Like refresh_if_stale(): if the project was moved, point an existing menu entry at the new location."""
+    values = _read(menu_path())
+    if values is None:
+        return
+    try:
+        expected = _exec_line()
+    except AutostartError as ex:
+        log.warning("Menu entry cannot be verified: %s", ex)
+        return
+    if values.get("Exec") != expected or values.get("Path") != APP_DIR:
+        log.info("Menu entry pointed at %r - updating to %r", values.get("Exec"), expected)
+        install_menu_entry()

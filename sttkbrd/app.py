@@ -1,5 +1,6 @@
 import fcntl
 import os
+import signal
 import sys
 import threading
 import time
@@ -22,6 +23,7 @@ from .vad import AutoListener
 
 ICON_IDLE, ICON_AUTO, ICON_REC, ICON_BUSY, ICON_ERROR = "idle", "auto", "rec", "busy", "error"
 MIN_SECONDS = 0.4
+MAX_PTT_SECONDS = 120
 
 
 class App:
@@ -37,6 +39,7 @@ class App:
         # auto mode only: the hotkey toggles listening off/on. Starts paused, so nothing listens until asked.
         self._paused = self.cfg["auto"]
         self._ptt = False  # a push-to-talk recording is in progress
+        self._ptt_started = 0.0
         self._busy = 0  # utterances being transcribed or typed
         self._busy_lock = threading.Lock()
         self._error = ""  # last error, shown until the next activity starts
@@ -47,7 +50,10 @@ class App:
         self.icon = XApp.StatusIcon()
         self.icon.set_name("sttkbrd")
         self.icon.set_icon_name(self.icons[ICON_IDLE])
-        self.icon.connect("activate", lambda *a: self.open_settings())
+        # Left button on the tray icon does what the hotkey does: toggles listening in auto mode, push-to-talk
+        # (hold) otherwise. Settings are reached from the right-click menu. "activate" is ignored on purpose.
+        self.icon.connect("button-press-event", self._on_icon_press)
+        self.icon.connect("button-release-event", self._on_icon_release)
         self.icon.set_secondary_menu(self._build_menu())
         self.hotkey = HotkeyListener(self.cfg["hotkey"], self._on_press, self._on_release)
         self.hotkey.start()
@@ -79,11 +85,11 @@ class App:
 
     def _set_state(self, icon, text=None):
         if self.cfg["auto"] and self._paused:
-            base = "Auto mode paused - press %s to resume" % self.cfg["hotkey"]
+            base = "Auto mode paused - click the icon or press %s to resume" % self.cfg["hotkey"]
         elif self.cfg["auto"]:
-            base = "Auto mode listening - press %s to pause" % self.cfg["hotkey"]
+            base = "Auto mode listening - click the icon or press %s to pause" % self.cfg["hotkey"]
         else:
-            base = "Hold %s and speak" % self.cfg["hotkey"]
+            base = "Hold %s (or the left mouse button on the icon) and speak" % self.cfg["hotkey"]
         text = text or base
         self._state = icon
         if self._dialog:
@@ -110,7 +116,19 @@ class App:
             self._shown = want
             self._set_state(*want)
 
+    def _on_icon_press(self, _icon, _x, _y, button, _time, _position):
+        if button == 1:  # left button only; right button opens the menu by itself
+            self._on_press()
+
+    def _on_icon_release(self, _icon, _x, _y, button, _time, _position):
+        if button == 1:
+            self._on_release()
+
     def _tick(self):
+        if self._ptt and time.monotonic() - self._ptt_started > MAX_PTT_SECONDS:
+            # a release event was lost (pointer left the icon, panel restarted ...): stop instead of recording forever
+            log.warning("Push-to-talk held for over %d s - stopping it", MAX_PTT_SECONDS)
+            self._on_release()
         if self.auto.stalled() and time.monotonic() - self._last_restart > 5:
             log.warning("Auto mode stream stopped delivering audio - restarting it")
             self._last_restart = time.monotonic()
@@ -174,6 +192,7 @@ class App:
         return False
 
     def open_settings(self):
+        log.info("Opening Settings")
         if self._dialog:
             self._dialog.present()
             return
@@ -200,6 +219,7 @@ class App:
         try:
             self.recorder.start(self.cfg["microphone"])
             self._ptt = True
+            self._ptt_started = time.monotonic()
             self._error = ""
             self._notify()
         except Exception as ex:
@@ -297,13 +317,30 @@ class App:
 
 
 def _single_instance():
+    """Take the instance lock. If another instance runs, ask it to show its Settings window and exit.
+
+    The running instance writes its pid into the lock file. An older instance that does not (empty file) is left
+    alone: it has no signal handler, so signalling it would just kill it.
+    """
     runtime = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
-    lock = open(os.path.join(runtime, "sttkbrd.lock"), "w")
+    path = os.path.join(runtime, "sttkbrd.lock")
+    lock = open(path, "a+")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        log.error("sttkbrd is already running.")
-        sys.exit(1)
+        lock.seek(0)
+        pid = lock.read().strip()
+        log.info("sttkbrd is already running (pid %s) - asking it to show Settings", pid or "unknown")
+        if pid.isdigit():
+            try:
+                os.kill(int(pid), signal.SIGUSR1)
+            except OSError:
+                log.exception("Could not signal the running instance")
+        sys.exit(0)
+    lock.seek(0)
+    lock.truncate()
+    lock.write(str(os.getpid()))
+    lock.flush()
     return lock
 
 
@@ -311,7 +348,12 @@ def main():
     setup_log()
     lock = _single_instance()  # noqa: F841 (must live as long as the process)
     autostart.refresh_if_stale()
+    autostart.refresh_menu_if_stale()
     app = App()
+    # a second launch (e.g. clicking the menu entry again) opens Settings here; SIGTERM/SIGINT quit cleanly
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, lambda: app.open_settings() or True)
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda: Gtk.main_quit() or False)
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, lambda: Gtk.main_quit() or False)
     if not app.cfg["api_key"]:
         GLib.idle_add(app.open_settings)
     Gtk.main()

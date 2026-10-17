@@ -167,14 +167,18 @@ class SettingsDialog(Gtk.Dialog):
 
         self._auto = Gtk.CheckButton(label="Auto mode: listen continuously (hotkey pauses / resumes)")
         self._auto.set_active(cfg["auto"])
-        grid.attach(self._auto, 1, 9, 1, 1)
+        grid.attach(self._auto, 1, 10, 1, 1)
+
+        self._menu = Gtk.CheckButton(label="Show in the application menu")
+        self._menu.set_active(autostart.menu_entry_enabled())
+        grid.attach(self._menu, 1, 8, 1, 1)
 
         self._autostart = Gtk.CheckButton(label="Start automatically when the desktop starts")
         self._autostart.set_active(autostart.is_enabled())
-        grid.attach(self._autostart, 1, 8, 1, 1)
+        grid.attach(self._autostart, 1, 9, 1, 1)
 
         self._status = Gtk.Label(xalign=0)
-        grid.attach(self._status, 0, 11, 2, 1)
+        grid.attach(self._status, 0, 12, 2, 1)
 
         self._build_commands(grid, cfg)
 
@@ -193,6 +197,7 @@ class SettingsDialog(Gtk.Dialog):
         for check in (self._space, self._auto, self._cmd_enabled):
             check.connect("toggled", lambda *_: self._commit())
         self._autostart.connect("toggled", self._on_autostart)
+        self._menu.connect("toggled", self._on_menu)
         self._auto.connect("toggled", lambda *_: self._sync_commands_visibility())
         self.connect("destroy", self._on_destroy)
 
@@ -266,7 +271,7 @@ class SettingsDialog(Gtk.Dialog):
         frame.show_all()  # children first: no_show_all below would otherwise leave them hidden for good
         frame.set_no_show_all(True)  # shown only while auto mode is on
         frame.set_visible(cfg["auto"])
-        grid.attach(frame, 0, 10, 2, 1)
+        grid.attach(frame, 0, 11, 2, 1)
 
     def _sync_commands_visibility(self):
         """The voice command settings belong to auto mode: show them only while it is on."""
@@ -335,6 +340,23 @@ class SettingsDialog(Gtk.Dialog):
             self._status.set_text(str(ex))
             self._quiet = True  # put the checkbox back to what is really on disk
             check.set_active(autostart.is_enabled())
+            self._quiet = False
+
+    def _on_menu(self, check):
+        """Like autostart, the application menu entry is a desktop file, so it is written or removed right here."""
+        if self._quiet:
+            return
+        try:
+            if check.get_active():
+                autostart.install_menu_entry()
+            else:
+                autostart.remove_menu_entry()
+            self._status.set_text("Menu entry %s." % ("added" if check.get_active() else "removed"))
+        except autostart.AutostartError as ex:
+            log.error("Menu entry: %s", ex)
+            self._status.set_text(str(ex))
+            self._quiet = True  # put the checkbox back to what is really on disk
+            check.set_active(autostart.menu_entry_enabled())
             self._quiet = False
 
     def set_auto(self, value):

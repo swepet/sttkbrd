@@ -7,9 +7,18 @@ Linux/X11. Lives as an icon by the clock (system tray). Uses OpenRouter for spee
     ./sttkbrd.sh
 
 On first start Settings opens: paste your OpenRouter key (or set `OPENROUTER_API_KEY`) and press **Load** for the model list (prices shown per minute).
-Left-click the tray icon = Settings, right-click = menu. Default hotkey: Ctrl+Shift+Space (change it in Settings).
+Tray icon: **left button** does what the hotkey does - in auto mode a click pauses / resumes listening, otherwise hold
+the button and speak (push-to-talk). **Right-click** opens the menu, which has Settings. Starting the app again also
+opens Settings. Default hotkey: Ctrl+Shift+Space (change it in Settings).
 Every change in Settings is saved and applied immediately - there is no Save button.
 The waveform in Settings follows the selected microphone, so you can see that it works.
+
+## Start without a terminal
+Tick **Show in the application menu** in Settings (or run `./sttkbrd.sh --install-menu`, remove with `--remove-menu`).
+It writes a standard freedesktop.org desktop entry to `$XDG_DATA_HOME/applications` (normally
+`~/.local/share/applications`), which GNOME, KDE, Xfce, MATE, Cinnamon and the other desktops all read.
+The entry points at the folder the app actually lives in, and only if `sttkbrd.sh` exists there. Starting the app
+again while it runs just opens its Settings window. If you move the project, the entry is corrected on the next start.
 
 ## Auto mode
 Tick **Auto mode** in Settings or in the tray menu (blue badge on the icon). The microphone is then listened to
