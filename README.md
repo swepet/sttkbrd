@@ -7,6 +7,8 @@
 Hold a key combination, speak, release - the text is typed where the cursor is, as if typed on a keyboard.
 Linux/X11 and Windows 10/11. Lives as an icon by the clock (system tray). Uses OpenRouter for speech-to-text.
 
+**Windows download:** [latest release](https://github.com/swepet/sttkbrd/releases/latest) - one file, `sttkbrd-v<version>.exe`, no Python needed.
+
 ## Run
 Linux: `./sttkbrd.sh`
 
