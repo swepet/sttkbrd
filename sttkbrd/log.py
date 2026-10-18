@@ -4,7 +4,9 @@ import os
 import sys
 import threading
 
-DIR = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "sttkbrd")
+from . import paths
+
+DIR = paths.state_dir()
 PATH = os.path.join(DIR, "sttkbrd.log")
 
 log = logging.getLogger("sttkbrd")
@@ -16,10 +18,11 @@ def setup():
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(threadName)s: %(message)s")
     fh = logging.handlers.RotatingFileHandler(PATH, maxBytes=512 * 1024, backupCount=2, encoding="utf-8")
     fh.setFormatter(fmt)
-    sh = logging.StreamHandler(sys.stderr)
-    sh.setFormatter(fmt)
     log.addHandler(fh)
-    log.addHandler(sh)
+    if sys.stderr:  # pythonw.exe has no console
+        sh = logging.StreamHandler(sys.stderr)
+        sh.setFormatter(fmt)
+        log.addHandler(sh)
 
     def hook(exc_type, exc, tb):
         log.error("Unhandled error", exc_info=(exc_type, exc, tb))

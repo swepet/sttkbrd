@@ -1,0 +1,7 @@
+numpy
+sounddevice
+requests
+pynput
+pillow
+pystray
+pyinstaller

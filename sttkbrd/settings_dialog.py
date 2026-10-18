@@ -4,16 +4,28 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
+gi.require_version("Pango", "1.0")
+gi.require_version("PangoCairo", "1.0")
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango, PangoCairo
 
-from . import autostart, commands, icons, recorder, stt
+from . import autostart, commands, icons, languages, recorder, stt
 from .log import log
 
 _GDK_NAMES = {"return": "enter", "escape": "esc", "iso_left_tab": "tab", "prior": "page_up", "next": "page_down"}
 _MOD_KEYS = {"control_l", "control_r", "shift_l", "shift_r", "alt_l", "alt_r", "super_l", "super_r",
              "meta_l", "meta_r", "iso_level3_shift"}
 HEADER_ICON_SIZE = 64
+WAVE_HEIGHT = 32  # the waveform and the text under it together are about as tall as the icon
 SPEECH_LEVEL = 0.25  # displayed level (0..1) above which a bar counts as speech, not noise
+
+
+FADE_EDGE = 0.12  # fraction of the width at each side over which the waveform and the text fade
+
+
+def _fade(x, width):
+    """1 in the middle, falling to 0 at the left and right edge."""
+    edge = max(width * FADE_EDGE, 1.0)
+    return max(0.0, min(1.0, x / edge, (width - x) / edge))
 
 
 def _combo_from_event(event):
@@ -40,7 +52,7 @@ class Waveform(Gtk.DrawingArea):
     def __init__(self, monitor):
         super().__init__()
         self._monitor = monitor
-        self.set_size_request(-1, HEADER_ICON_SIZE)
+        self.set_size_request(-1, WAVE_HEIGHT)
         self.set_hexpand(True)
         self.connect("draw", self._draw)
         self._tick = GLib.timeout_add(33, self._refresh)
@@ -67,12 +79,86 @@ class Waveform(Gtk.DrawingArea):
             half = max(1.0, level * (mid - 2))
             # newest bars are the most opaque; quiet background noise stays grey, speech turns blue
             alpha = 0.25 + 0.75 * (i + 1) / len(levels)
+            fade = _fade(i * slot + bar / 2, width)
             if level > SPEECH_LEVEL:
-                cr.set_source_rgba(0.15, 0.55, 1.0, alpha)
+                cr.set_source_rgba(0.15, 0.55, 1.0, alpha * fade)
             else:
-                cr.set_source_rgba(color.red, color.green, color.blue, 0.35)
+                cr.set_source_rgba(color.red, color.green, color.blue, 0.35 * fade)
             cr.rectangle(i * slot, mid - half, bar, half * 2)
             cr.fill()
+        return False
+
+
+class TextTicker(Gtk.DrawingArea):
+    """Transcribed text enters at the right edge and scrolls left at the speed of the waveform above it."""
+
+    BARS = 96
+    FPS = 30  # bars the waveform advances per second
+
+    def __init__(self):
+        super().__init__()
+        self.set_size_request(-1, 20)
+        self.set_hexpand(True)
+        self._items = []  # [text, x, width]
+        self._error = ""
+        self._last = GLib.get_monotonic_time()
+        self.connect("draw", self._draw)
+        self._tick = GLib.timeout_add(33, self._step)
+        self.connect("destroy", lambda *_: GLib.source_remove(self._tick))
+
+    def add(self, text):
+        width = self.get_allocated_width()
+        start = width
+        if self._items:
+            last = self._items[-1]
+            start = max(width, last[1] + last[2] + 24)
+        self._items.append([text, start, None])
+
+    def _error_layout(self, width):
+        layout = self.create_pango_layout(self._error)
+        layout.set_width(max(width - 8, 1) * Pango.SCALE)
+        layout.set_wrap(Pango.WrapMode.WORD_CHAR)
+        return layout
+
+    def set_error(self, text):
+        """Permanent red message in place of the scrolling text; empty clears it. Taller if it needs more lines."""
+        if text == self._error:
+            return
+        self._error = text
+        height = self._error_layout(max(self.get_allocated_width(), 1)).get_pixel_size()[1] + 4 if text else 0
+        self.set_size_request(-1, max(20, height))
+
+    def _step(self):
+        now = GLib.get_monotonic_time()
+        speed = max(self.get_allocated_width(), 1) / float(self.BARS) * self.FPS  # pixels per second
+        dx = speed * (now - self._last) / 1e6
+        self._last = now
+        for item in self._items:
+            item[1] -= dx
+        self._items = [i for i in self._items if i[2] is None or i[1] + i[2] >= 0]
+        self.queue_draw()
+        return True
+
+    def _draw(self, widget, cr):
+        cr.set_font_size(13)
+        width = widget.get_allocated_width()
+        if self._error:
+            cr.set_source_rgba(0.88, 0.19, 0.19, 1.0)
+            cr.move_to(4, 1)
+            PangoCairo.show_layout(cr, self._error_layout(width))
+            return False
+        y = 14  # directly under the waveform
+        for item in self._items:
+            item[2] = cr.text_extents(item[0]).x_advance
+            x = item[1]
+            for ch in item[0]:  # character by character, so the text fades in and out at the edges
+                advance = cr.text_extents(ch).x_advance
+                fade = _fade(x + advance / 2, width)
+                if fade > 0.03 and not ch.isspace():
+                    cr.set_source_rgba(0.15, 0.55, 1.0, fade)
+                    cr.move_to(x, y)
+                    cr.show_text(ch)
+                x += advance
         return False
 
 
@@ -97,11 +183,15 @@ class SettingsDialog(Gtk.Dialog):
         # Header: icon on the left, live microphone waveform to the right of it.
         self._monitor = recorder.MicMonitor()
         header = Gtk.Box(spacing=12)
+        wave_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self._ticker = TextTicker()
         self._icon_paths = icons.build()
         self._header_icon = Gtk.Image.new_from_icon_name("audio-input-microphone", Gtk.IconSize.DIALOG)
         header.pack_start(self._header_icon, False, False, 0)
         self.set_state(state)
-        header.pack_start(Waveform(self._monitor), True, True, 0)
+        wave_box.pack_start(Waveform(self._monitor), False, False, 0)
+        wave_box.pack_start(self._ticker, False, False, 0)
+        header.pack_start(wave_box, True, True, 0)
         content.pack_start(header, False, False, 0)
 
         grid = Gtk.Grid(column_spacing=10, row_spacing=8)
@@ -158,8 +248,14 @@ class SettingsDialog(Gtk.Dialog):
         self._mic.connect("changed", lambda *_: self._monitor.start(self._selected_mic()))
         row(5, "Microphone", self._mic)
 
-        self._lang = Gtk.Entry(text=cfg["language"], placeholder_text="one code, e.g. sv or en - empty = automatic")
-        row(6, "Language", self._lang)
+        saved = languages.normalize(cfg["language"])
+        self._lang = Gtk.ComboBoxText()
+        entries = languages.labels(saved)
+        for entry in entries:
+            self._lang.append_text(entry)
+        self._lang.set_active(entries.index(languages.label(saved)) if saved else 0)
+        self._lang.set_tooltip_text("The language you mostly speak - other languages still work; automatic detection can guess wrong on short sentences")
+        row(6, "Main language", self._lang)
 
         self._space = Gtk.CheckButton(label="Add a space after the text")
         self._space.set_active(cfg["trailing_space"])
@@ -190,9 +286,9 @@ class SettingsDialog(Gtk.Dialog):
 
         # Every change is saved and applied immediately. Text fields are debounced so typing does not
         # save on every keypress; the pending save is flushed when the window closes.
-        for entry in (self._url, self._key, self._lang, self._model.get_child()):
+        for entry in (self._url, self._key, self._model.get_child()):
             entry.connect("changed", self._schedule_commit)
-        for widget in (self._provider, self._model, self._mic):
+        for widget in (self._provider, self._model, self._mic, self._lang):
             widget.connect("changed", lambda *_: self._commit())
         for check in (self._space, self._auto, self._cmd_enabled):
             check.connect("toggled", lambda *_: self._commit())
@@ -213,6 +309,14 @@ class SettingsDialog(Gtk.Dialog):
             self._header_icon.set_from_pixbuf(pixbuf)
         except Exception:
             log.exception("Could not load the header icon for state %s", state)
+
+    def show_text(self, text):
+        """A transcription arrived: let it scroll by under the waveform."""
+        self._ticker.add(text)
+
+    def set_error(self, text):
+        """Show what went wrong in red under the waveform for as long as the error lasts."""
+        self._ticker.set_error(text)
 
     # --- voice commands ---------------------------------------------------------------------------------
     def _build_commands(self, grid, cfg):
@@ -391,7 +495,7 @@ class SettingsDialog(Gtk.Dialog):
             api_key=self._key.get_text().strip(),
             model=self._model.get_child().get_text().strip() or stt.DEFAULT_MODEL,
             hotkey=self._hotkey,
-            language=self._lang.get_text().strip(),
+            language=languages.code(self._lang.get_active_text()),
             microphone=self._selected_mic(),
             trailing_space=self._space.get_active(),
             auto=self._auto.get_active(),

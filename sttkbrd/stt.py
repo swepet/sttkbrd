@@ -103,18 +103,28 @@ def transcribe(api_key, model, base_url, wav, language=""):
     lang = _language(language)
     url = _base(base_url) + "/audio/transcriptions"
     audio = {"data": base64.b64encode(wav).decode("ascii"), "format": "wav"}
+    timeout = (10, 30 + len(wav) // 32000)  # connect, read: half a minute plus the length of the recording
     for attempt_lang in ([lang, ""] if lang else [""]):
         body = {"model": model, "input_audio": audio}
         if attempt_lang:
             body["language"] = attempt_lang
         log.info("POST %s model=%s lang=%r wavBytes=%d", url, model, attempt_lang, len(wav))
         try:
-            resp = requests.post(url, json=body, headers=_headers(api_key, base_url), timeout=180)
+            resp = requests.post(url, json=body, headers=_headers(api_key, base_url), timeout=timeout)
+        except requests.Timeout:
+            log.error("Request timed out after %d s", timeout[1])
+            raise SttError("The model did not answer within %d seconds." % timeout[1])
         except requests.RequestException as ex:
             log.error("Request failed: %s", ex)
             raise SttError("Could not reach the speech-to-text model: %s" % ex)
         if resp.ok:
-            text = (resp.json().get("text") or "").strip()
+            try:
+                answer = resp.json()
+                text = answer["text"]
+            except (ValueError, KeyError, TypeError):
+                log.error("Unusable answer: %s", resp.text[:300])
+                raise SttError("The model returned no transcription - it may not support speech-to-text.")
+            text = (text or "").strip()
             log.info("Heard %d characters", len(text))
             return text
         log.error("HTTP %d: %s", resp.status_code, resp.text[:500])

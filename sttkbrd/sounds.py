@@ -8,6 +8,7 @@ import wave
 import numpy as np
 import sounddevice as sd
 
+from . import paths
 from .log import log
 
 RATE = 44100
@@ -28,6 +29,9 @@ def _silence(ms):
 # listening on: two short high beeps. Listening off: one slightly longer, lower beep.
 ON = (np.concatenate([_beep(1000, 70), _silence(70), _beep(1000, 70)]) * VOLUME).astype(np.float32)
 OFF = (_beep(600, 220) * VOLUME).astype(np.float32)
+# something went wrong: five low beeps in a row
+ALARM = (np.concatenate([np.concatenate([_beep(440, 120), _silence(100)]) for _ in range(5)]) * VOLUME * 1.6
+         ).astype(np.float32)
 
 
 def _wav_bytes(samples):
@@ -41,7 +45,7 @@ def _wav_bytes(samples):
 
 
 _PAPLAY = shutil.which("paplay")
-_CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "sttkbrd", "sounds")
+_CACHE = os.path.join(paths.cache_dir(), "sounds")
 
 
 def _wav_file(name, samples):
@@ -69,6 +73,10 @@ def _play(samples, name):
 
 def listening_on():
     _play(ON, "listening-on")
+
+
+def alarm():
+    _play(ALARM, "alarm")
 
 
 def listening_off():

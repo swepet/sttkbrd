@@ -1,13 +1,15 @@
 import os
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
+from . import paths
 from .log import log
 
 SOURCE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "art", "icon.png")
-CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "sttkbrd", "icons")
+CACHE = os.path.join(paths.cache_dir(), "icons2")
 SIZE = 128
-BADGES = {"idle": None, "auto": (30, 120, 255), "rec": (230, 40, 40), "busy": (255, 170, 0), "error": (255, 220, 0)}
+BADGES = {"idle": None, "auto": (30, 120, 255), "rec": (230, 40, 40), "busy": (255, 170, 0), "error": None}
+WHOLE_RED = "error"  # no badge: the whole icon turns red
 
 
 def _transparent_corners(img):
@@ -32,6 +34,10 @@ def build():
                 if base is None:
                     base = _transparent_corners(Image.open(SOURCE).resize((SIZE, SIZE), Image.LANCZOS))
                 img = base.copy()
+                if state == WHOLE_RED:
+                    alpha = img.getchannel("A")
+                    img = ImageOps.colorize(ImageOps.grayscale(img), black=(70, 0, 0), white=(255, 90, 90)).convert("RGBA")
+                    img.putalpha(alpha)
                 if color:
                     d = ImageDraw.Draw(img)
                     r = SIZE * 0.20

@@ -1,6 +1,6 @@
 import re
 
-from . import typer
+from . import keys
 
 # Voice commands: when a whole utterance equals one of a command's phrases, the action runs instead of the
 # text being typed. A command's phrase field may hold several phrases separated by commas: "enter, retur".
@@ -58,7 +58,7 @@ def value_error(kind, value):
     """Readable problem with an action, or None if it is usable."""
     if kind == "key":
         try:
-            typer.parse_combo(value)
+            keys.parse_combo(value)
         except ValueError as ex:
             return str(ex)
     elif kind == "text" and not value:

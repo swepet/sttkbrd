@@ -1,5 +1,6 @@
 import collections
 import io
+import sys
 import threading
 import wave
 
@@ -11,13 +12,25 @@ from .log import log
 RATE = 16000
 
 
+def _resolve(name):
+    """Windows lists every microphone once per audio API (MME, DirectSound, WASAPI ...), so a bare name is
+    ambiguous: pick the device of the default API."""
+    if sys.platform != "win32" or not name:
+        return name
+    api = sd.default.hostapi
+    for i, d in enumerate(sd.query_devices()):
+        if d["hostapi"] == api and d["max_input_channels"] > 0 and d["name"] == name:
+            return i
+    return name
+
+
 def open_input(device_name, callback, blocksize=0):
     """Open a 16 kHz mono input stream on the named microphone, falling back to the system default
     if that device is gone or the name no longer matches (e.g. a USB mic that was unplugged)."""
     for device in ([device_name, None] if device_name else [None]):
         try:
             return sd.InputStream(samplerate=RATE, channels=1, dtype="int16", blocksize=blocksize,
-                                  device=device, callback=callback)
+                                  device=_resolve(device), callback=callback)
         except (ValueError, sd.PortAudioError) as ex:
             if device is None:
                 raise
@@ -27,6 +40,8 @@ def open_input(device_name, callback, blocksize=0):
 def list_microphones():
     names = []
     for d in sd.query_devices():
+        if sys.platform == "win32" and d["hostapi"] != sd.default.hostapi:
+            continue
         if d["max_input_channels"] > 0 and d["name"] not in names:
             names.append(d["name"])
     return names
