@@ -12,6 +12,10 @@ Linux/X11 and Windows 10/11. Lives as an icon by the clock (system tray). Uses O
 and every earlier version. [Latest release](https://github.com/swepet/sttkbrd/releases/latest).
 On Linux, run it from the source (see Run below).
 
+<p align="center">
+  <img src="sttkbrd_screen.png">
+</p>
+
 ## Run
 Linux: `./sttkbrd.sh`
 
