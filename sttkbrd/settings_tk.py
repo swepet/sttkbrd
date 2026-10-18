@@ -211,7 +211,6 @@ class SettingsDialog:
         box.columnconfigure(0, weight=1)
         self._model_box = ttk.Combobox(box, textvariable=self._model, values=stt.FALLBACK_MODELS)
         self._model_box.grid(row=0, column=0, sticky="ew")
-        ttk.Button(box, text="Load", width=6, command=self._load_models).grid(row=0, column=1, padx=(6, 0))
         row(3, "Model", box)
 
         self._hotkey_btn = ttk.Button(grid, text=self._hotkey, command=self._capture_hotkey)
@@ -251,12 +250,16 @@ class SettingsDialog:
         ttk.Button(body, text="Close", command=self.close).grid(row=4, column=0, sticky="e", pady=(8, 0))
         self._sync_commands_visibility()
 
+        self._models_timer = None
+        self._models_for = None  # (key, url) the model list was last requested for
         if cfg["api_key"]:
             self._load_models()
 
         # Text fields are debounced so typing does not save on every keypress; the pending save is flushed on close.
         for var in (self._url, self._key, self._model):
             var.trace_add("write", self._schedule_commit)
+        for var in (self._url, self._key):
+            var.trace_add("write", self._schedule_models)
         self._model_box.bind("<<ComboboxSelected>>", lambda *_: self._commit())
         self._mic.bind("<<ComboboxSelected>>", lambda *_: (self._monitor.start(self._selected_mic()), self._commit()))
         self._space.trace_add("write", lambda *_: self._commit())
@@ -305,6 +308,9 @@ class SettingsDialog:
         self._sync_commands_visibility()
 
     def close(self):
+        if self._models_timer:
+            self.win.after_cancel(self._models_timer)
+            self._models_timer = None
         if self._commit_timer:
             self._commit()
         self._monitor.stop()
@@ -466,17 +472,31 @@ class SettingsDialog:
             self._on_change(dict(cfg))
 
     # --- models and hotkey ----------------------------------------------------------------------------------
+    def _schedule_models(self, *_):
+        """Reload the model list a moment after the key or URL stops changing."""
+        if self._quiet:
+            return
+        if self._models_timer:
+            self.win.after_cancel(self._models_timer)
+        self._models_timer = self.win.after(800, self._load_models)
+
     def _load_models(self):
+        self._models_timer = None
         key, url = self._key.get().strip(), self._url.get()
+        if not key:
+            return
+        self._models_for = (key, url)
         self._status.set("Loading models…")
 
         def work():
             try:
                 models = stt.load_models(key, url)
-                self.win.after(0, self._set_models, models)
+                if self._models_for == (key, url):  # the key or URL changed meanwhile: a newer request is on its way
+                    self.win.after(0, self._set_models, models)
             except stt.SttError as ex:
                 log.error("Loading models: %s", ex)
-                self.win.after(0, self._status.set, str(ex))
+                if self._models_for == (key, url):
+                    self.win.after(0, self._status.set, str(ex))
             except RuntimeError:  # the window was closed meanwhile
                 pass
 

@@ -224,12 +224,7 @@ class SettingsDialog(Gtk.Dialog):
         self._model.pack_start(renderer, True)
         self._model.add_attribute(renderer, "text", 1)
         self._model.get_child().set_text(cfg["model"])
-        refresh = Gtk.Button(label="Load")
-        refresh.connect("clicked", self._load_models)
-        box = Gtk.Box(spacing=6)
-        box.pack_start(self._model, True, True, 0)
-        box.pack_start(refresh, False, False, 0)
-        row(3, "Model", box)
+        row(3, "Model", self._model)
 
         self._hotkey_btn = Gtk.Button(label=self._hotkey)
         self._hotkey_btn.connect("clicked", self._capture_hotkey)
@@ -278,8 +273,10 @@ class SettingsDialog(Gtk.Dialog):
 
         self._build_commands(grid, cfg)
 
+        self._models_timer = None
+        self._models_for = None  # (key, url) the model list was last requested for
         if cfg["api_key"]:
-            self._load_models(None)
+            self._load_models()
 
         self.add_button("Close", Gtk.ResponseType.CLOSE)
         self.connect("response", lambda *_: self.destroy())
@@ -288,6 +285,8 @@ class SettingsDialog(Gtk.Dialog):
         # save on every keypress; the pending save is flushed when the window closes.
         for entry in (self._url, self._key, self._model.get_child()):
             entry.connect("changed", self._schedule_commit)
+        for entry in (self._url, self._key):
+            entry.connect("changed", self._schedule_models)
         for widget in (self._provider, self._model, self._mic, self._lang):
             widget.connect("changed", lambda *_: self._commit())
         for check in (self._space, self._auto, self._cmd_enabled):
@@ -471,6 +470,9 @@ class SettingsDialog(Gtk.Dialog):
         self._sync_commands_visibility()
 
     def _on_destroy(self, *_):
+        if self._models_timer:
+            GLib.source_remove(self._models_timer)
+            self._models_timer = None
         if self._commit_timer:
             self._commit()
         self._monitor.stop()
@@ -511,19 +513,34 @@ class SettingsDialog(Gtk.Dialog):
         mic = self._mic.get_active_text()
         return "" if mic in (None, "(default)") else mic
 
-    def _load_models(self, _btn):
+    def _schedule_models(self, *_):
+        """Reload the model list a moment after the key or URL stops changing."""
+        if self._quiet:
+            return
+        if self._models_timer:
+            GLib.source_remove(self._models_timer)
+        self._models_timer = GLib.timeout_add(800, self._load_models)
+
+    def _load_models(self):
+        self._models_timer = None
         key, url = self._key.get_text().strip(), self._url.get_text()
+        if not key:
+            return False
+        self._models_for = (key, url)
         self._status.set_text("Loading models…")
 
         def work():
             try:
                 models = stt.load_models(key, url)
-                GLib.idle_add(self._set_models, models)
+                if self._models_for == (key, url):  # the key or URL changed meanwhile: a newer request is on its way
+                    GLib.idle_add(self._set_models, models)
             except stt.SttError as ex:
                 log.error("Loading models: %s", ex)
-                GLib.idle_add(self._status.set_text, str(ex))
+                if self._models_for == (key, url):
+                    GLib.idle_add(self._status.set_text, str(ex))
 
         threading.Thread(target=work, daemon=True).start()
+        return False
 
     def _set_models(self, models):
         current = self._model.get_child().get_text()
