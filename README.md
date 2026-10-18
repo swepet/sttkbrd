@@ -10,7 +10,7 @@ Linux/X11 and Windows 10/11. Lives as an icon by the clock (system tray). Uses O
 ## Run
 Linux: `./sttkbrd.sh`
 
-Windows: run `sttkbrd.exe` (see **Windows** below), or from source `pythonw sttkbrd.pyw` (`python -m sttkbrd` shows the console).
+Windows: run `sttkbrd-v<version>.exe` (see **Windows** below), or from source `pythonw sttkbrd.pyw` (`python -m sttkbrd` shows the console).
 
 On first start Settings opens: paste your OpenRouter key (or set `OPENROUTER_API_KEY`) and press **Load** for the model list (prices shown per minute).
 Tray icon: **left button** does what the hotkey does - in auto mode a click pauses / resumes listening, otherwise hold
@@ -52,7 +52,7 @@ Config: `~/.config/sttkbrd/config.json` (mode 600). Log: `~/.local/state/sttkbrd
 python3-pynput, python3-sounddevice, python3-numpy, python3-requests, python3-xlib, python3-gi, gir1.2-xapp-1.0
 
 ## Windows
-Build a single `dist\sttkbrd.exe` (no Python needed to run it) with `build-windows.bat`; it installs
+Build a single `dist\sttkbrd-v<version>.exe` (no Python needed to run it; the version is in the name and in the file's properties) with `build-windows.bat`; it installs
 `requirements-windows.txt` and runs PyInstaller. Differences from Linux:
 - Text is typed with SendInput as Unicode characters, so any character works on any keyboard layout and the
   clipboard is never used. It cannot type into windows running as administrator unless sttkbrd does too.

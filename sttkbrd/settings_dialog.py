@@ -8,7 +8,7 @@ gi.require_version("Pango", "1.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango, PangoCairo
 
-from . import autostart, commands, icons, languages, recorder, stt
+from . import __version__, autostart, commands, icons, languages, recorder, stt
 from .log import log
 
 _GDK_NAMES = {"return": "enter", "escape": "esc", "iso_left_tab": "tab", "prior": "page_up", "next": "page_down"}
@@ -164,7 +164,7 @@ class TextTicker(Gtk.DrawingArea):
 
 class SettingsDialog(Gtk.Dialog):
     def __init__(self, cfg, on_change, state="idle"):
-        super().__init__(title="sttkbrd - Settings")
+        super().__init__(title="sttkbrd v%s - Settings" % __version__)
         self._cfg = dict(cfg)
         self._on_change = on_change
         self._commit_timer = None

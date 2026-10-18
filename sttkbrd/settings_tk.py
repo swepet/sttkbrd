@@ -5,7 +5,7 @@ from tkinter import font as tkfont, ttk
 
 from PIL import ImageTk
 
-from . import autostart, commands, icons, languages, recorder, stt
+from . import __version__, autostart, commands, icons, languages, recorder, stt
 from .log import log
 
 _TK_NAMES = {"return": "enter", "escape": "esc", "prior": "page_up", "next": "page_down", "iso_left_tab": "tab"}
@@ -161,7 +161,7 @@ class SettingsDialog:
         self._rows = []  # voice command rows: (frame, phrase var, type var, value var)
 
         self.win = win = tk.Toplevel(root)
-        win.title("sttkbrd - Settings")
+        win.title("sttkbrd v%s - Settings" % __version__)
         win.minsize(520, 0)
         self._icon_paths = icons.build()
         self._images = {}
