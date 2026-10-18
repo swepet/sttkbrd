@@ -61,3 +61,6 @@ Build a single `dist\sttkbrd-v<version>.exe` (no Python needed to run it; the ve
 - "Show in the Start menu" writes a shortcut, autostart uses the `Run` registry key; both point at the exe
   and are corrected on the next start if it is moved.
 - Config: `%APPDATA%\sttkbrd\config.json`. Log: `%LOCALAPPDATA%\sttkbrd\sttkbrd.log`.
+
+## License
+MIT, see [LICENSE](LICENSE). Copyright (c) 2026 Peter Lehnér.
